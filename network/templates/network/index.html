@@ -1,0 +1,532 @@
+{% extends "network/layout.html" %}
+
+{% block body %}
+<style>
+    .container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .new-post-form {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        border: 1px solid #e1e8ed;
+    }
+
+    .new-post-form h4 {
+        color: #1da1f2;
+        font-size: 20px;
+        font-weight: 700;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .new-post-form h4::before {
+        content: "✍️";
+        font-size: 18px;
+    }
+
+    /* 登入提示樣式 */
+    .login-prompt {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 12px;
+        padding: 32px 24px;
+        margin-bottom: 30px;
+        text-align: center;
+        border: 2px #dee2e6;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .login-prompt::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(29, 161, 242, 0.1), transparent);
+        animation: shimmer 3s infinite;
+    }
+
+    @keyframes shimmer {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
+
+    .login-prompt-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.7;
+    }
+
+    .login-prompt h4 {
+        color: #495057;
+        font-size: 24px;
+        font-weight: 700;
+        margin-bottom: 12px;
+    }
+
+    .login-prompt p {
+        color: #6c757d;
+        font-size: 16px;
+        margin-bottom: 24px;
+        line-height: 1.5;
+    }
+
+    .login-buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .login-btn {
+        padding: 12px 24px;
+        border-radius: 25px;
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        border: none;
+        cursor: pointer;
+        position: relative;
+        z-index: 1;
+    }
+
+    .login-btn.primary {
+        background: linear-gradient(135deg, #1da1f2 0%, #1991db 100%);
+        color: white;
+        box-shadow: 0 4px 15px rgba(29, 161, 242, 0.3);
+    }
+
+    .login-btn.primary:hover {
+        background: linear-gradient(135deg, #1991db 0%, #1472a4 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(29, 161, 242, 0.4);
+    }
+
+    .login-btn.secondary {
+        background: #ffffff;
+        color: #1da1f2;
+        border: 2px solid #1da1f2;
+    }
+
+    .login-btn.secondary:hover {
+        background: #1da1f2;
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(29, 161, 242, 0.3);
+    }
+
+    #post-content {
+        width: 100%;
+        min-height: 100px;
+        padding: 16px;
+        border: 2px solid #e1e8ed;
+        border-radius: 8px;
+        font-size: 16px;
+        font-family: inherit;
+        resize: vertical;
+        outline: none;
+        transition: border-color 0.3s ease;
+        background: #fafafa;
+    }
+
+    #post-content:focus {
+        border-color: #1da1f2;
+        background: #ffffff;
+        box-shadow: 0 0 0 3px rgba(29, 161, 242, 0.1);
+    }
+
+    #post-content::placeholder {
+        color: #657786;
+        font-style: italic;
+    }
+
+    .post-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid #e1e8ed;
+    }
+
+    .char-counter {
+        font-size: 14px;
+        color: #657786;
+        font-weight: 500;
+    }
+
+    #submit-post {
+        background: linear-gradient(135deg, #1da1f2 0%, #1991db 100%);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 20px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(29, 161, 242, 0.3);
+    }
+
+    #submit-post:hover {
+        background: linear-gradient(135deg, #1991db 0%, #1472a4 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(29, 161, 242, 0.4);
+    }
+
+    #submit-post:active {
+        transform: translateY(0);
+    }
+
+    #submit-post:disabled {
+        background: #aab8c2;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+
+    #posts-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .post-item {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #e1e8ed;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+
+    .post-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        border-color: #1da1f2;
+    }
+
+    .post-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #1da1f2 0%, #1991db 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        margin-right: 12px;
+        font-size: 16px;
+    }
+
+    .post-meta {
+        flex: 1;
+    }
+
+    .post-username {
+        font-weight: 700;
+        color: #14171a;
+        font-size: 15px;
+        margin-bottom: 2px;
+    }
+
+    .post-timestamp {
+        font-size: 13px;
+        color: #657786;
+    }
+
+    .post-content {
+        font-size: 16px;
+        line-height: 1.5;
+        color: #14171a;
+        margin-bottom: 12px;
+        word-wrap: break-word;
+    }
+
+    .divider {
+        height: 1px;
+        background: #e1e8ed;
+        margin: 20px 0;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #657786;
+    }
+
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    .empty-state-text {
+        font-size: 18px;
+        font-weight: 500;
+    }
+
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        color: #657786;
+    }
+
+    .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e1e8ed;
+        border-top: 2px solid #1da1f2;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 12px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .container {
+            padding: 10px;
+        }
+
+        .new-post-form, .login-prompt {
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .post-item {
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .login-buttons {
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .login-btn {
+            width: 100%;
+            max-width: 200px;
+        }
+
+        .login-prompt-icon {
+            font-size: 36px;
+        }
+
+        .login-prompt h4 {
+            font-size: 20px;
+        }
+    }
+</style>
+
+<div class="container">
+    {% if user.is_authenticated %}
+    <div id="new-post-form" class="new-post-form">
+        <h4>New Post</h4>
+        <textarea id="post-content" rows="3" placeholder="What's on your mind? Share something interesting..." maxlength="280"></textarea>
+        <div class="post-actions">
+            <div class="char-counter">
+                <span id="char-count">0</span>/280
+            </div>
+            <button id="submit-post" disabled>Post</button>
+        </div>
+    </div>
+    {% else %}
+    <div class="login-prompt">
+        <div class="login-prompt-icon">🔐</div>
+        <h4>Join the Conversation!</h4>
+        <p>Share your thoughts, connect with others, and discover amazing content.<br>
+        Please log in to start posting and interacting with the community.</p>
+        <div class="login-buttons">
+            <a href="{% url 'login' %}" class="login-btn primary">Log In</a>
+            <a href="{% url 'register' %}" class="login-btn secondary">Create Account</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div id="posts-container">
+        <!-- 這裡應該由Django模板來渲染現有的貼文 -->
+        <!-- 例如: -->
+        <!-- {% for post in posts %}
+        <div class="post-item">
+            <div class="post-header">
+                <div class="user-avatar">{{ post.user.username|first|upper }}</div>
+                <div class="post-meta">
+                    <div class="post-username">{{ post.user.username }}</div>
+                    <div class="post-timestamp">{{ post.timestamp }}</div>
+                </div>
+            </div>
+            <div class="post-content">{{ post.content }}</div>
+        </div>
+        {% empty %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <div class="empty-state-text">No posts yet. Be the first to share something!</div>
+        </div>
+        {% endfor %} -->
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const textarea = document.querySelector("#post-content");
+        const submitButton = document.querySelector("#submit-post");
+        const charCount = document.querySelector("#char-count");
+        const charCounter = document.querySelector(".char-counter");
+        const postsContainer = document.querySelector("#posts-container");
+
+        // 字數計算和按鈕狀態
+        if (textarea) {
+            textarea.addEventListener("input", function() {
+                const length = this.value.length;
+                charCount.textContent = length;
+
+                // 更新字數顏色
+                if (length > 250) {
+                    charCounter.style.color = "#e0245e";
+                } else if (length > 200) {
+                    charCounter.style.color = "#ffad1f";
+                } else {
+                    charCounter.style.color = "#657786";
+                }
+
+                // 啟用/禁用發布按鈕
+                submitButton.disabled = length === 0 || length > 280;
+            });
+        }
+
+        // 原有的發布功能
+        if (submitButton) {
+            submitButton.onclick = function() {
+                const content = document.querySelector("#post-content").value;
+
+                // 顯示loading狀態
+                submitButton.disabled = true;
+                submitButton.textContent = "Posting...";
+
+                fetch("/create", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken"),
+                    },
+                    body: JSON.stringify({ content: content }),
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.post) {
+                        // 清除loading狀態和空狀態
+                        if (postsContainer.querySelector('.loading') || postsContainer.querySelector('.empty-state')) {
+                            postsContainer.innerHTML = '';
+                        }
+
+                        // 創建新的貼文元素
+                        const div = document.createElement("div");
+                        div.className = "post-item fade-in";
+
+                        const userInitial = result.post.user.charAt(0).toUpperCase();
+                        div.innerHTML = `
+                            <div class="post-header">
+                                <div class="user-avatar">${userInitial}</div>
+                                <div class="post-meta">
+                                    <div class="post-username">${result.post.user}</div>
+                                    <div class="post-timestamp">${result.post.timestamp}</div>
+                                </div>
+                            </div>
+                            <div class="post-content">${result.post.content}</div>
+                        `;
+
+                        postsContainer.prepend(div);
+
+                        // 清空表單
+                        document.querySelector("#post-content").value = "";
+                        charCount.textContent = "0";
+                        charCounter.style.color = "#657786";
+
+                        // 恢復按鈕狀態
+                        submitButton.disabled = true;
+                        submitButton.textContent = "Post";
+                    } else {
+                        alert(result.error);
+                        // 恢復按鈕狀態
+                        submitButton.disabled = false;
+                        submitButton.textContent = "Post";
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('發布失敗，請重試');
+                    // 恢復按鈕狀態
+                    submitButton.disabled = false;
+                    submitButton.textContent = "Post";
+                });
+            };
+        }
+
+        // 原有的Cookie函數
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== "") {
+                const cookies = document.cookie.split(";");
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === name + "=") {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // 自動調整textarea高度
+        if (textarea) {
+            textarea.addEventListener("input", function() {
+                this.style.height = "auto";
+                this.style.height = Math.max(100, this.scrollHeight) + "px";
+            });
+        }
+
+        // 載入現有貼文的功能已移除，改由Django模板直接渲染
+        // 如果你有API端點來載入貼文，可以在這裡實現
+    });
+</script>
+
+{% endblock %}

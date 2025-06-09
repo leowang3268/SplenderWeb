@@ -1,0 +1,546 @@
+{% extends "network/layout.html" %}
+
+{% block body %}
+<style>
+    .container {
+        max-width: 700px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .profile-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 40px;
+        border-radius: 20px;
+        margin-bottom: 30px;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .profile-header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
+        animation: shine 3s ease-in-out infinite;
+    }
+
+    @keyframes shine {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+
+    .profile-avatar {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #ff6b6b 0%, #feca57 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 36px;
+        margin: 0 auto 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        position: relative;
+        z-index: 1;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .profile-username {
+        font-size: 32px;
+        font-weight: 700;
+        margin-bottom: 8px;
+        position: relative;
+        z-index: 1;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .profile-stats {
+        display: flex;
+        justify-content: center;
+        gap: 40px;
+        margin-bottom: 24px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .stat-item {
+        text-align: center;
+        background: rgba(255, 255, 255, 0.15);
+        padding: 16px 24px;
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: all 0.3s ease;
+    }
+
+    .stat-item:hover {
+        background: rgba(255, 255, 255, 0.25);
+        transform: translateY(-2px);
+    }
+
+    .stat-number {
+        font-size: 24px;
+        font-weight: 700;
+        display: block;
+        margin-bottom: 4px;
+    }
+
+    .stat-label {
+        font-size: 14px;
+        opacity: 0.9;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .follow-btn {
+        background: linear-gradient(135deg, #1da1f2 0%, #1991db 100%);
+        color: white;
+        border: none;
+        padding: 12px 32px;
+        border-radius: 25px;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(29, 161, 242, 0.4);
+        position: relative;
+        z-index: 1;
+        min-width: 120px;
+    }
+
+    .follow-btn:hover {
+        background: linear-gradient(135deg, #1991db 0%, #1472a4 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(29, 161, 242, 0.5);
+    }
+
+    .follow-btn:active {
+        transform: translateY(0);
+    }
+
+    .follow-btn.following {
+        background: linear-gradient(135deg, #17c671 0%, #15b865 100%);
+        box-shadow: 0 4px 15px rgba(23, 198, 113, 0.4);
+    }
+
+    .follow-btn.following:hover {
+        background: linear-gradient(135deg, #e0245e 0%, #c91e4a 100%);
+        box-shadow: 0 6px 20px rgba(224, 36, 94, 0.5);
+    }
+
+    .posts-section {
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        border: 1px solid #e1e8ed;
+    }
+
+    .posts-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 2px solid #e1e8ed;
+    }
+
+    .posts-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #14171a;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .posts-title::before {
+        content: "📝";
+        font-size: 20px;
+    }
+
+    #posts-container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .post-item {
+        background: #f8f9fa;
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #e1e8ed;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+
+    .post-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        border-color: #667eea;
+        background: #ffffff;
+    }
+
+    .post-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .post-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        margin-right: 12px;
+        font-size: 16px;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    .post-meta {
+        flex: 1;
+    }
+
+    .post-username {
+        font-weight: 700;
+        color: #14171a;
+        font-size: 16px;
+        margin-bottom: 2px;
+    }
+
+    .post-timestamp {
+        font-size: 14px;
+        color: #657786;
+        font-weight: 500;
+    }
+
+    .post-content {
+        font-size: 16px;
+        line-height: 1.6;
+        color: #14171a;
+        word-wrap: break-word;
+        margin-left: 52px;
+    }
+
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 60px;
+        color: #657786;
+    }
+
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid #e1e8ed;
+        border-top: 3px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 16px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #657786;
+    }
+
+    .empty-state-icon {
+        font-size: 64px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    .empty-state-text {
+        font-size: 18px;
+        font-weight: 500;
+        margin-bottom: 8px;
+    }
+
+    .empty-state-subtext {
+        font-size: 14px;
+        opacity: 0.7;
+    }
+
+    .fade-in {
+        animation: fadeIn 0.5s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (max-width: 768px) {
+        .container {
+            padding: 10px;
+        }
+
+        .profile-header {
+            padding: 30px 20px;
+            border-radius: 16px;
+        }
+
+        .profile-avatar {
+            width: 80px;
+            height: 80px;
+            font-size: 28px;
+        }
+
+        .profile-username {
+            font-size: 24px;
+        }
+
+        .profile-stats {
+            gap: 20px;
+        }
+
+        .stat-item {
+            padding: 12px 16px;
+        }
+
+        .stat-number {
+            font-size: 20px;
+        }
+
+        .posts-section {
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        .post-item {
+            padding: 16px;
+        }
+    }
+</style>
+
+<div class="container">
+    <div class="profile-header">
+        <div class="profile-avatar">
+            {{ profile_user.username|first|upper }}
+        </div>
+        <h1 class="profile-username">{{ profile_user.username }}</h1>
+
+        <div class="profile-stats">
+            <div class="stat-item">
+                <span class="stat-number" id="followers-count">-</span>
+                <span class="stat-label">Followers</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="following-count">-</span>
+                <span class="stat-label">Following</span>
+            </div>
+        </div>
+
+        {% if request.user != profile_user %}
+            <button id="follow-btn" class="follow-btn" type="button">
+                Loading...
+            </button>
+        {% endif %}
+    </div>
+
+    <div class="posts-section">
+        <div class="posts-header">
+            <h2 class="posts-title">Posts</h2>
+        </div>
+
+        <div id="posts-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                Loading posts...
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const username = "{{ profile_user.username }}";
+
+        // Load profile stats
+        fetch(`/api/profile/${username}`)
+        .then(response => response.json())
+        .then(data => {
+            console.log("Profile API data:", data);
+
+            // Update stats with animation
+            updateCount("#followers-count", data.followers);
+            updateCount("#following-count", data.following);
+
+            // Setup follow button
+            if (data.is_following !== undefined) {
+                const btn = document.querySelector("#follow-btn");
+                updateFollowButton(btn, data.is_following);
+
+                btn.addEventListener("click", function(event) {
+                    event.preventDefault();
+
+                    // Disable button during request
+                    btn.disabled = true;
+                    btn.innerText = "Loading...";
+
+                    fetch(`/api/follow/${username}`, {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": getCookie("csrftoken"),
+                            "Content-Type": "application/json"
+                        },
+                        credentials: "same-origin",
+                        body: JSON.stringify({})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        // Update followers count
+                        let followersCount = parseInt(document.querySelector("#followers-count").innerText);
+                        const isCurrentlyFollowing = btn.classList.contains("following");
+
+                        if (isCurrentlyFollowing) {
+                            updateCount("#followers-count", followersCount - 1);
+                            updateFollowButton(btn, false);
+                        } else {
+                            updateCount("#followers-count", followersCount + 1);
+                            updateFollowButton(btn, true);
+                        }
+
+                        btn.disabled = false;
+                    })
+                    .catch(error => {
+                        console.error("Error:", error);
+                        btn.disabled = false;
+                        updateFollowButton(btn, btn.classList.contains("following"));
+                    });
+                });
+            }
+        })
+        .catch(error => {
+            console.error("Error loading profile:", error);
+            document.querySelector("#followers-count").innerText = "0";
+            document.querySelector("#following-count").innerText = "0";
+        });
+
+        // Load posts
+        fetch(`/api/posts?user=${username}`)
+        .then(response => response.json())
+        .then(data => {
+            const container = document.querySelector("#posts-container");
+            container.innerHTML = "";
+
+            if (data.posts.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <div class="empty-state-text">No posts yet</div>
+                        <div class="empty-state-subtext">${username} hasn't shared anything yet.</div>
+                    </div>
+                `;
+                return;
+            }
+
+            data.posts.forEach((post, index) => {
+                const div = document.createElement("div");
+                div.className = "post-item fade-in";
+                div.style.animationDelay = `${index * 0.1}s`;
+
+                const userInitial = post.user.charAt(0).toUpperCase();
+
+                div.innerHTML = `
+                    <div class="post-header">
+                        <div class="post-avatar">${userInitial}</div>
+                        <div class="post-meta">
+                            <div class="post-username">${post.user}</div>
+                            <div class="post-timestamp">${post.timestamp}</div>
+                        </div>
+                    </div>
+                    <div class="post-content">${post.content}</div>
+                `;
+                container.appendChild(div);
+            });
+        })
+        .catch(error => {
+            console.error("Error loading posts:", error);
+            const container = document.querySelector("#posts-container");
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">⚠️</div>
+                    <div class="empty-state-text">Failed to load posts</div>
+                    <div class="empty-state-subtext">Please try refreshing the page.</div>
+                </div>
+            `;
+        });
+
+        // Helper functions
+        function updateCount(selector, newValue) {
+            const element = document.querySelector(selector);
+            const oldValue = parseInt(element.innerText) || 0;
+
+            if (oldValue !== newValue) {
+                element.style.transform = "scale(1.2)";
+                element.style.color = "#1da1f2";
+
+                setTimeout(() => {
+                    element.innerText = newValue;
+                    element.style.transform = "scale(1)";
+                    element.style.color = "";
+                }, 150);
+            } else {
+                element.innerText = newValue;
+            }
+        }
+
+        function updateFollowButton(btn, isFollowing) {
+            if (isFollowing) {
+                btn.innerText = "Following";
+                btn.classList.add("following");
+                btn.title = "Click to unfollow";
+            } else {
+                btn.innerText = "Follow";
+                btn.classList.remove("following");
+                btn.title = "Click to follow";
+            }
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== "") {
+                const cookies = document.cookie.split(";");
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === name + "=") {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    });
+</script>
+
+{% endblock %}
