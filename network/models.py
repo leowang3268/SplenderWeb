@@ -34,13 +34,14 @@ class Comment(models.Model):
     content = models.TextField()
     timestamp = models.DateTimeField(auto_now_add=True)
 
-    def serialize(self):
+    def serialize(self, user=None):
         return {
             "id": self.id,
             "post_id": self.post.id,
             "user": self.user.username,
             "content": self.content,
             "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "is_owner": user == self.user if user else False,
         }
 
     def __str__(self):

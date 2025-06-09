@@ -441,7 +441,7 @@
                 submitButton.disabled = true;
                 submitButton.textContent = "Posting...";
 
-                fetch("/create", {
+                fetch("api/posts/create/", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",

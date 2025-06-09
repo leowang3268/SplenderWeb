@@ -388,7 +388,7 @@
                 const postId = button.dataset.postId;
                 // Disable button temporarily
                 button.disabled = true;
-                fetch(`/api/like/${postId}`, {
+                fetch(`api/posts/${postId}/like/`, {
                     method: "POST",
                     headers: {
                         "X-CSRFToken": getCookie("csrftoken"),

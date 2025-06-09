@@ -385,7 +385,7 @@
         const username = "{{ profile_user.username }}";
 
         // Load profile stats
-        fetch(`/api/profile/${username}`)
+        fetch(`api/users/${username}`)
         .then(response => response.json())
         .then(data => {
             console.log("Profile API data:", data);
@@ -406,7 +406,7 @@
                     btn.disabled = true;
                     btn.innerText = "Loading...";
 
-                    fetch(`/api/follow/${username}`, {
+                    fetch(`api/users/${username}/follow/`, {
                         method: "POST",
                         headers: {
                             "X-CSRFToken": getCookie("csrftoken"),

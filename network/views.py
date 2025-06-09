@@ -75,8 +75,9 @@ def create_post(request):
         data = json.loads(request.body)
         content = data.get("content", "")
         if content.strip() == "":
-            return JsonResponse({"error": "Empty content."}, status=403)
-
+            return JsonResponse({"error": "Empty content."}, status=400)
+        if len(content) > 280:  # 類似 Twitter 限制
+            return JsonResponse({"error": "Content too long."}, status=400)
         post = Post(user=request.user, content=content)
         post.save()
         # Serialize the post to return in the response
@@ -145,7 +146,7 @@ def profile_api(request, username):
     followers = profile_user.followers.count()
 
     is_following = False
-    if request.user.is_authenticated and request.user != profile_user:
+    if request.user.is_authenticated:
         # Check if the current user is following the profile user
         is_following = Follow.objects.filter(follower=request.user, followed=profile_user).exists()
 
@@ -153,7 +154,7 @@ def profile_api(request, username):
         "username": profile_user.username,
         "followers": followers,
         "following": following,
-        "is_following": is_following
+        "is_following": None if request.user == profile_user else is_following
     })
 
 
@@ -202,6 +203,7 @@ def following(request):
     return render(request, "network/following.html")
 
 @csrf_exempt
+@require_http_methods(["PUT"])
 def edit_post(request, post_id):
     if request.method == "PUT":
         try:
@@ -216,7 +218,8 @@ def edit_post(request, post_id):
         new_content = data.get("content", "").strip()
         if not new_content:
             return JsonResponse({"error": "Content cannot be empty."}, status=400)
-
+        if len(new_content) > 280:  # 類似 Twitter 限制
+            return JsonResponse({"error": "Content too long."}, status=400)
         post.content = new_content
         post.save()
         return JsonResponse({"message": "Post updated."})
@@ -238,7 +241,8 @@ def create_comment(request, post_id):
     content = data.get("content", "").strip()
     if not content:
         return JsonResponse({"error": "Content cannot be empty."}, status=400)
-
+    if len(content) > 140:  # 類似 Twitter 限制
+            return JsonResponse({"error": "Content too long."}, status=400)
     comment = Comment(post=post, user=request.user, content=content)
     comment.save()
 
@@ -251,7 +255,7 @@ def comments_api(request, post_id):
         return JsonResponse({"error": "Post not found."}, status=404)
 
     comments = post.comments.select_related("user").order_by("-timestamp")
-    data = [comment.serialize() for comment in comments]
+    data = [comment.serialize(request.user) for comment in comments]
 
     return JsonResponse({
         "comments": data,
@@ -284,7 +288,8 @@ def edit_comment(request, comment_id):
     new_content = data.get("content", "").strip()
     if not new_content:
         return JsonResponse({"error": "Empty content."}, status=400)
-
+    if len(new_content) > 140:  # 類似 Twitter 限制
+            return JsonResponse({"error": "Content too long."}, status=400)
     comment.content = new_content
     comment.save()
     return JsonResponse({"comment": {
