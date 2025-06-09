@@ -1,310 +1,472 @@
 from django.contrib.auth import authenticate, login, logout
 from django.core.paginator import Paginator
-from django.db import IntegrityError
-from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.db import IntegrityError, transaction
+from django.http import HttpResponseRedirect
 from django.shortcuts import render, get_object_or_404
 from django.urls import reverse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods, require_GET, require_POST
-import json
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
+import logging
 from .models import User, Post, Follow, Comment
+from .serializers import PostSerializer, CommentSerializer, UserProfileSerializer
+
+logger = logging.getLogger(__name__)
+
+# Constants
+POST_MAX_LENGTH = 280
+COMMENT_MAX_LENGTH = 140
+POSTS_PER_PAGE = 10
 
 
 def index(request):
+    """首頁視圖"""
     return render(request, "network/index.html")
 
 
 def login_view(request):
+    """用戶登入視圖"""
     if request.method == "POST":
-
-        # Attempt to sign user in
         username = request.POST["username"]
         password = request.POST["password"]
         user = authenticate(request, username=username, password=password)
 
-        # Check if authentication successful
         if user is not None:
             login(request, user)
-            # Redirect to index page
+            logger.info(f"User {username} logged in successfully")
             return HttpResponseRedirect(reverse("index"))
         else:
+            logger.warning(f"Failed login attempt for username: {username}")
             return render(request, "network/login.html", {
                 "message": "Invalid username and/or password."
             })
-    else:
-        return render(request, "network/login.html")
+    return render(request, "network/login.html")
 
 
 def logout_view(request):
+    """用戶登出視圖"""
+    if request.user.is_authenticated:
+        logger.info(f"User {request.user.username} logged out")
     logout(request)
     return HttpResponseRedirect(reverse("index"))
 
 
 def register(request):
+    """用戶註冊視圖"""
     if request.method == "POST":
         username = request.POST["username"]
         email = request.POST["email"]
-
-        # Ensure password matches confirmation
         password = request.POST["password"]
         confirmation = request.POST["confirmation"]
+        
         if password != confirmation:
             return render(request, "network/register.html", {
                 "message": "Passwords must match."
             })
 
-        # Attempt to create new user
         try:
-            user = User.objects.create_user(username, email, password)
-            user.save()
+            with transaction.atomic():
+                user = User.objects.create_user(username, email, password)
+                user.save()
+                login(request, user)
+                logger.info(f"New user registered: {username}")
+                return HttpResponseRedirect(reverse("index"))
         except IntegrityError:
+            logger.warning(f"Registration failed - username already exists: {username}")
             return render(request, "network/register.html", {
                 "message": "Username already taken."
             })
-        login(request, user)
-        return HttpResponseRedirect(reverse("index"))
-    else:
-        return render(request, "network/register.html")
+    return render(request, "network/register.html")
 
-@csrf_exempt
+
+def _validate_content(content, max_length, content_type="Content"):
+    """統一內容驗證"""
+    if not content or not content.strip():
+        raise ValidationError(f"{content_type} cannot be empty.")
+    
+    if len(content) > max_length:
+        raise ValidationError(f"{content_type} too long (max {max_length} characters).")
+    
+    return content.strip()
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def create_post(request):
-    if request.method == "POST":
-        if not request.user.is_authenticated:
-            return JsonResponse({"error": "Authentication required."}, status=403)
+    """創建新貼文"""
+    try:
+        content = _validate_content(
+            request.data.get("content", ""), 
+            POST_MAX_LENGTH, 
+            "Post content"
+        )
+        
+        with transaction.atomic():
+            post = Post.objects.create(user=request.user, content=content)
+        
+        logger.info(f"User {request.user.username} created post {post.id}")
+        
+        # 使用原來的 serialize 方法保持相容性
+        if hasattr(post, 'serialize'):
+            post_data = post.serialize(user=request.user)
+        else:
+            post_data = {
+                'id': post.id,
+                'user': post.user.username,
+                'content': post.content,
+                'timestamp': post.timestamp.isoformat(),
+                'likes_count': post.likes.count(),
+                'is_liked': False
+            }
+        
+        return Response({
+            "message": "Post created successfully.", 
+            "post": post_data
+        }, status=status.HTTP_201_CREATED)
+        
+    except ValidationError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        data = json.loads(request.body)
-        content = data.get("content", "")
-        if content.strip() == "":
-            return JsonResponse({"error": "Empty content."}, status=400)
-        if len(content) > 280:  # 類似 Twitter 限制
-            return JsonResponse({"error": "Content too long."}, status=400)
-        post = Post(user=request.user, content=content)
-        post.save()
-        # Serialize the post to return in the response
-        return JsonResponse({"message": "Post created successfully.", "post": post.serialize()}, status=201)
-    return JsonResponse({"error": "POST request required."}, status=400)
-
-# def all_posts(request):
-#     posts = Post.objects.all().order_by("-timestamp")
-#     paginator = Paginator(posts, 10)
-#     page_number = request.GET.get("page")
-#     page_obj = paginator.get_page(page_number)
-
-#     return render(request, "network/all_posts.html", {
-#         "page_obj": page_obj
-#     })
 
 def all_posts(request):
+    """所有貼文頁面"""
     return render(request, "network/all_posts.html", {
         "user_authenticated": request.user.is_authenticated
     })
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedOrReadOnly])
 def posts_api(request):
-    user_param = request.GET.get("user")
-    following_only = request.GET.get("following") == "true"
-    # Fetch all posts, using select_related for user and prefetch_related for likes
-    # This optimizes database queries by reducing the number of queries made
-    # when accessing related objects.
-    posts = Post.objects.select_related("user").prefetch_related("likes").order_by("-timestamp")
+    """貼文 API - 支持分頁、篩選"""
+    try:
+        # 參數處理
+        user_param = request.GET.get("user")
+        following_only = request.GET.get("following") == "true"
+        page_number = request.GET.get("page", 1)
+        
+        # 基礎查詢優化
+        posts = Post.objects.select_related("user").prefetch_related("likes").order_by("-timestamp")
 
-    if user_param:
-        posts = posts.filter(user__username=user_param)
-    if following_only and request.user.is_authenticated:
-        # Get the IDs of users that the current user is following
-        followed_users = request.user.following.values_list("followed__id", flat=True)
-        # Filter posts to include only those from followed users
-        posts = posts.filter(user__id__in=followed_users)
+        # 篩選邏輯
+        if user_param:
+            posts = posts.filter(user__username=user_param)
+        
+        if following_only:
+            if not request.user.is_authenticated:
+                return Response({"error": "Authentication required for following posts."}, 
+                              status=status.HTTP_401_UNAUTHORIZED)
+            
+            followed_users = request.user.following.values_list("followed__id", flat=True)
+            posts = posts.filter(user__id__in=followed_users)
 
-    paginator = Paginator(posts, 10)
-    page_number = request.GET.get("page")
-    page_obj = paginator.get_page(page_number)
-    
-    data = [post.serialize(user=request.user) for post in page_obj]
+        # 分頁處理
+        paginator = Paginator(posts, POSTS_PER_PAGE)
+        page_obj = paginator.get_page(page_number)
+        
+        # 使用原來的 serialize 方法保持相容性
+        data = []
+        for post in page_obj.object_list:
+            if hasattr(post, 'serialize'):
+                data.append(post.serialize(user=request.user))
+            else:
+                # 如果沒有 serialize 方法，使用基本序列化
+                data.append({
+                    'id': post.id,
+                    'user': post.user.username,
+                    'content': post.content,
+                    'timestamp': post.timestamp.isoformat(),
+                    'likes_count': post.likes.count(),
+                    'is_liked': post.likes.filter(id=request.user.id).exists() if request.user.is_authenticated else False
+                })
 
+        # 保持原來的回應格式
+        return Response({
+            "posts": data,
+            "has_next": page_obj.has_next(),
+            "has_previous": page_obj.has_previous(),
+            "page_number": page_obj.number
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in posts_api: {str(e)}")
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    return JsonResponse({
-        "posts": data,
-        "has_next": page_obj.has_next(),
-        "has_previous": page_obj.has_previous(),
-        "page_number": page_obj.number
-    })
 
 def profile(request, username):
+    """用戶個人資料頁面"""
     profile_user = get_object_or_404(User, username=username)
-
     return render(request, "network/profile.html", {
         "profile_user": profile_user
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedOrReadOnly])
 def profile_api(request, username):
-    profile_user = get_object_or_404(
-        User.objects.prefetch_related("followers", "following"), 
-        username=username)
-
-    following = profile_user.following.count()
-    followers = profile_user.followers.count()
-
-    is_following = False
-    if request.user.is_authenticated:
-        # Check if the current user is following the profile user
-        is_following = Follow.objects.filter(follower=request.user, followed=profile_user).exists()
-
-    return JsonResponse({
-        "username": profile_user.username,
-        "followers": followers,
-        "following": following,
-        "is_following": None if request.user == profile_user else is_following
-    })
-
-
-@csrf_exempt
-@require_POST
-def follow_toggle(request, username):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "Authentication required."}, status=403)
-    
+    """用戶個人資料 API"""
     try:
-        target_user = User.objects.get(username=username)
-    except User.DoesNotExist:
-        return JsonResponse({"error": "User not found."}, status=404)
-    
-    if request.user == target_user:
-        return JsonResponse({"error": "Cannot follow yourself."}, status=400)
+        profile_user = get_object_or_404(
+            User.objects.prefetch_related("followers", "following"), 
+            username=username
+        )
 
-    follow_relation, created = Follow.objects.get_or_create(
-        follower=request.user,
-        followed=target_user
-    )
-    # If the follow relation already exists, it means the user is unfollowing
-    if not created:
-        follow_relation.delete()
-        return JsonResponse({"message": "Unfollowed."})
-    return JsonResponse({"message": "Followed."})
+        following = profile_user.following.count()
+        followers = profile_user.followers.count()
+
+        is_following = False
+        if request.user.is_authenticated:
+            is_following = Follow.objects.filter(
+                follower=request.user, 
+                followed=profile_user
+            ).exists()
+
+        return Response({
+            "username": profile_user.username,
+            "followers": followers,
+            "following": following,
+            "is_following": None if request.user == profile_user else is_following
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in profile_api for user {username}: {str(e)}")
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@csrf_exempt
-@require_POST
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def follow_toggle(request, username):
+    """切換關注狀態"""
+    try:
+        target_user = get_object_or_404(User, username=username)
+        
+        if request.user == target_user:
+            raise ValidationError("Cannot follow yourself.")
+
+        with transaction.atomic():
+            follow_relation, created = Follow.objects.get_or_create(
+                follower=request.user,
+                followed=target_user
+            )
+            
+            if not created:
+                follow_relation.delete()
+                action = "unfollowed"
+                logger.info(f"User {request.user.username} unfollowed {username}")
+            else:
+                action = "followed"
+                logger.info(f"User {request.user.username} followed {username}")
+        
+        return Response({"message": f"Successfully {action}.", "action": action})
+        
+    except ValidationError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def like_toggle(request, post_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "Authentication required."}, status=403)
+    """切換點讚狀態"""
+    try:
+        post = get_object_or_404(Post, id=post_id)
+        
+        with transaction.atomic():
+            if post.likes.filter(id=request.user.id).exists():
+                post.likes.remove(request.user)
+                liked = False
+                action = "unliked"
+            else:
+                post.likes.add(request.user)
+                liked = True
+                action = "liked"
+        
+        logger.info(f"User {request.user.username} {action} post {post_id}")
+        return Response({
+            "message": f"Post {action}.", 
+            "liked": liked,
+            "likes_count": post.likes.count()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in like_toggle for post {post_id}: {str(e)}")
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    post = get_object_or_404(Post, id=post_id)
-    user = request.user
-    # Check if the user has already liked the post
-    if post.likes.filter(id=user.id).exists():
-        post.likes.remove(user)
-        return JsonResponse({"message": "Unliked", "liked": False})
-    else:
-        post.likes.add(user)
-        return JsonResponse({"message": "Liked", "liked": True})
 
 def following(request):
+    """關注的用戶貼文頁面"""
     return render(request, "network/following.html")
 
-@csrf_exempt
-@require_http_methods(["PUT"])
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
 def edit_post(request, post_id):
-    if request.method == "PUT":
-        try:
-            post = Post.objects.select_related("user").get(id=post_id)
-        except Post.DoesNotExist:
-            return JsonResponse({"error": "Post not found."}, status=404)
-
+    """編輯貼文"""
+    try:
+        post = get_object_or_404(Post.objects.select_related("user"), id=post_id)
+        
         if post.user != request.user:
-            return JsonResponse({"error": "You can only edit your own posts."}, status=403)
+            raise PermissionDenied("You can only edit your own posts.")
 
-        data = json.loads(request.body)
-        new_content = data.get("content", "").strip()
-        if not new_content:
-            return JsonResponse({"error": "Content cannot be empty."}, status=400)
-        if len(new_content) > 280:  # 類似 Twitter 限制
-            return JsonResponse({"error": "Content too long."}, status=400)
-        post.content = new_content
-        post.save()
-        return JsonResponse({"message": "Post updated."})
+        new_content = _validate_content(
+            request.data.get("content", ""), 
+            POST_MAX_LENGTH, 
+            "Post content"
+        )
+        
+        with transaction.atomic():
+            post.content = new_content
+            post.save()
+        
+        logger.info(f"User {request.user.username} edited post {post_id}")
+        
+        return Response({"message": "Post updated successfully."})
+        
+    except (ValidationError, PermissionDenied) as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    return JsonResponse({"error": "PUT method required."}, status=400)
 
-@require_POST
-@csrf_exempt
-def create_comment(request, post_id):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "Authentication required."}, status=403)
-
-    try:
-        post = Post.objects.get(id=post_id)
-    except Post.DoesNotExist:
-        return JsonResponse({"error": "Post not found."}, status=404)
-
-    data = json.loads(request.body)
-    content = data.get("content", "").strip()
-    if not content:
-        return JsonResponse({"error": "Content cannot be empty."}, status=400)
-    if len(content) > 140:  # 類似 Twitter 限制
-            return JsonResponse({"error": "Content too long."}, status=400)
-    comment = Comment(post=post, user=request.user, content=content)
-    comment.save()
-
-    return JsonResponse({"message": "Comment created successfully.", "comment": comment.serialize()}, status=201)
-
-def comments_api(request, post_id): 
-    try:
-        post = Post.objects.get(id=post_id)
-    except Post.DoesNotExist:
-        return JsonResponse({"error": "Post not found."}, status=404)
-
-    comments = post.comments.select_related("user").order_by("-timestamp")
-    data = [comment.serialize(request.user) for comment in comments]
-
-    return JsonResponse({
-        "comments": data,
-        "post_id": post_id
-    })
-
-@csrf_exempt
-@require_http_methods(["DELETE"])
-def delete_comment(request, comment_id):
-    try:
-        comment = Comment.objects.get(pk=comment_id)
-    except Comment.DoesNotExist:
-        return JsonResponse({"error": "Comment not found."}, status=404)
-    if comment.user != request.user:
-        return JsonResponse({"error": "Unauthorized."}, status=403)
-    comment.delete()
-    return JsonResponse({"message": "Comment deleted"})
-
-@csrf_exempt
-@require_http_methods(["PUT"])
-def edit_comment(request, comment_id):
-    try:
-        comment = Comment.objects.get(pk=comment_id)
-    except Comment.DoesNotExist:
-        return JsonResponse({"error": "Comment not found."}, status=404)
-    if comment.user != request.user:
-        return JsonResponse({"error": "Unauthorized."}, status=403)
-
-    data = json.loads(request.body)
-    new_content = data.get("content", "").strip()
-    if not new_content:
-        return JsonResponse({"error": "Empty content."}, status=400)
-    if len(new_content) > 140:  # 類似 Twitter 限制
-            return JsonResponse({"error": "Content too long."}, status=400)
-    comment.content = new_content
-    comment.save()
-    return JsonResponse({"comment": {
-        "id": comment.id,
-        "content": comment.content
-    }})
-
-@csrf_exempt
-@require_http_methods(["DELETE"])
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
 def delete_post(request, post_id):
+    """刪除貼文"""
     try:
-        post = Post.objects.get(pk=post_id)
-    except Post.DoesNotExist:
-        return JsonResponse({"error": "Post not found."}, status=404)
-    if post.user != request.user:
-        return JsonResponse({"error": "Unauthorized."}, status=403)
-    post.delete()
-    return JsonResponse({"message": "Post deleted"})
+        post = get_object_or_404(Post, pk=post_id)
+        
+        if post.user != request.user:
+            raise PermissionDenied("You can only delete your own posts.")
+        
+        with transaction.atomic():
+            post.delete()
+        
+        logger.info(f"User {request.user.username} deleted post {post_id}")
+        return Response({"message": "Post deleted successfully."})
+        
+    except PermissionDenied as e:
+        return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_comment(request, post_id):
+    """創建評論"""
+    try:
+        post = get_object_or_404(Post, id=post_id)
+        
+        content = _validate_content(
+            request.data.get("content", ""), 
+            COMMENT_MAX_LENGTH, 
+            "Comment"
+        )
+        
+        with transaction.atomic():
+            comment = Comment.objects.create(post=post, user=request.user, content=content)
+        
+        logger.info(f"User {request.user.username} commented on post {post_id}")
+        
+        # 使用原來的 serialize 方法保持相容性
+        if hasattr(comment, 'serialize'):
+            comment_data = comment.serialize(request.user)
+        else:
+            comment_data = {
+                'id': comment.id,
+                'user': comment.user.username,
+                'content': comment.content,
+                'timestamp': comment.timestamp.isoformat()
+            }
+        
+        return Response({
+            "message": "Comment created successfully.", 
+            "comment": comment_data
+        }, status=status.HTTP_201_CREATED)
+        
+    except ValidationError as e:
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedOrReadOnly])
+def comments_api(request, post_id): 
+    """評論列表 API"""
+    try:
+        post = get_object_or_404(Post, id=post_id)
+        comments = post.comments.select_related("user").order_by("-timestamp")
+        
+        # 使用原來的 serialize 方法保持相容性
+        data = []
+        for comment in comments:
+            if hasattr(comment, 'serialize'):
+                data.append(comment.serialize(request.user))
+            else:
+                data.append({
+                    'id': comment.id,
+                    'user': comment.user.username,
+                    'content': comment.content,
+                    'timestamp': comment.timestamp.isoformat()
+                })
+        
+        return Response({
+            "comments": data,
+            "post_id": post_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in comments_api for post {post_id}: {str(e)}")
+        return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
+def edit_comment(request, comment_id):
+    """編輯評論"""
+    try:
+        comment = get_object_or_404(Comment, pk=comment_id)
+        
+        if comment.user != request.user:
+            raise PermissionDenied("You can only edit your own comments.")
+
+        new_content = _validate_content(
+            request.data.get("content", ""), 
+            COMMENT_MAX_LENGTH, 
+            "Comment"
+        )
+        
+        with transaction.atomic():
+            comment.content = new_content
+            comment.save()
+        
+        logger.info(f"User {request.user.username} edited comment {comment_id}")
+        
+        return Response({
+            "comment": {
+                "id": comment.id,
+                "content": comment.content
+            }
+        })
+        
+    except (ValidationError, PermissionDenied) as e:
+        status_code = status.HTTP_403_FORBIDDEN if isinstance(e, PermissionDenied) else status.HTTP_400_BAD_REQUEST
+        return Response({"error": str(e)}, status=status_code)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_comment(request, comment_id):
+    """刪除評論"""
+    try:
+        comment = get_object_or_404(Comment, pk=comment_id)
+        
+        if comment.user != request.user:
+            raise PermissionDenied("You can only delete your own comments.")
+        
+        with transaction.atomic():
+            comment.delete()
+        
+        logger.info(f"User {request.user.username} deleted comment {comment_id}")
+        return Response({"message": "Comment deleted successfully."})
+        
+    except PermissionDenied as e:
+        return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
